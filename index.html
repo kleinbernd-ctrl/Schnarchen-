@@ -42,8 +42,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .meter.hot i{background:var(--accent)}
 
 /* Nachtansicht */
-#night{position:fixed;inset:0;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;padding:24px 16px;transition:opacity 1.5s}
-#night.dim{opacity:.22}
+#night{position:fixed;inset:0;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;padding:24px 16px}
 .clock{font:300 clamp(4rem,22vw,7rem)/1 var(--display);color:#7c849a;font-variant-numeric:tabular-nums}
 .status{font-size:1rem;color:#5d6478;text-align:center;min-height:1.5em}
 .status.rec{color:var(--accent)}
@@ -66,6 +65,21 @@ canvas{width:100%;height:150px;display:block}
 .clip audio{width:100%;height:40px}
 .clip .acts{display:flex;gap:8px;flex-wrap:wrap}
 .back{align-self:flex-start;color:var(--muted);padding:4px 0}
+
+/* Statusanzeige */
+.live{position:absolute;top:calc(env(safe-area-inset-top,0px) + 18px);left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:9px;padding:7px 16px;border-radius:999px;border:1px solid #1f2533;color:#8a91a6;font-size:.88rem;white-space:nowrap}
+.live i{width:9px;height:9px;border-radius:50%;background:#4fae7c;animation:pulse 2.4s ease-in-out infinite}
+.live.rec{border-color:#4a3418;color:var(--accent)} .live.rec i{background:var(--accent)}
+.live.warn{border-color:#5a2621;color:var(--alert)} .live.warn i{background:var(--alert);animation:none}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+
+/* Schwarzer Bildschirm */
+#blackout{position:fixed;inset:0;background:#000;z-index:10;display:flex;align-items:flex-end;justify-content:center;padding-bottom:calc(env(safe-area-inset-bottom,0px) + 28px)}
+#blackout i{width:6px;height:6px;border-radius:50%;background:#4fae7c;opacity:.18;animation:faint 4s ease-in-out infinite}
+#blackout.rec i{background:var(--accent)}
+#blackout.warn i{background:var(--alert);opacity:.5;animation:none}
+@keyframes faint{0%,100%{opacity:.06}50%{opacity:.22}}
+@media (prefers-reduced-motion:reduce){.live i,#blackout i{animation:none}}
 </style>
 </head>
 <body>
@@ -90,7 +104,7 @@ canvas{width:100%;height:150px;display:block}
     <h2>Für eine gute Nacht-Aufnahme</h2>
     <ul class="tips">
       <li>Handy ans Ladekabel, ca. 0,5–1 m neben das Kopfende.</li>
-      <li>App im Vordergrund lassen. Der Bildschirm bleibt an, wird aber fast schwarz.</li>
+      <li>App im Vordergrund lassen. Nach 20 s wird der Bildschirm schwarz – Tippen oder Bewegen des Handys holt die Anzeige zurück.</li>
       <li>Aufgenommen wird nur, wenn rhythmisches Schnarchen erkannt wird (mind. 3 Atemzüge), inkl. 25 s davor.</li>
       <li>Alles bleibt lokal auf diesem Gerät.</li>
     </ul>
@@ -104,6 +118,8 @@ canvas{width:100%;height:150px;display:block}
 
 <!-- Nachtansicht -->
 <section id="night" hidden>
+  <button class="live" id="live"><i></i><span id="liveTxt">Aktiv · Mikrofon hört zu</span></button>
+  <div id="blackout" hidden><i></i></div>
   <div class="clock" id="clock">--:--</div>
   <div class="status" id="status">Höre zu …</div>
   <div style="display:flex;gap:8px" id="dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
@@ -227,17 +243,23 @@ document.addEventListener("visibilitychange", () => {
 
 async function startNight() {
   $("#err").hidden = true;
+  // Alles, was eine Nutzergeste braucht, sofort und ohne vorheriges await anstoßen (iOS)
+  const ac = new (window.AudioContext || window.webkitAudioContext)();
+  const resumeP = ac.resume();
+  const motionP = (typeof DeviceMotionEvent !== "undefined" && typeof DeviceMotionEvent.requestPermission === "function")
+    ? DeviceMotionEvent.requestPermission().catch(() => "denied") : Promise.resolve("granted");
   let stream;
   try {
     stream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 }
     });
   } catch (e) {
+    try { ac.close(); } catch (_) {}
     $("#err").textContent = "Kein Mikrofonzugriff. Bitte im Browser erlauben (Seite muss über https laufen).";
     $("#err").hidden = false; return;
   }
-  const ac = new (window.AudioContext || window.webkitAudioContext)();
-  await ac.resume();
+  await resumeP.catch(() => {});
+  if ((await motionP) === "granted") window.addEventListener("devicemotion", onMotion);
   const src = ac.createMediaStreamSource(stream);
   const proc = ac.createScriptProcessor(4096, 1, 1);
   const mute = ac.createGain(); mute.gain.value = 0;
@@ -261,10 +283,14 @@ async function startNight() {
   E.saver = setInterval(() => { E.session.end = Date.now(); putSession(E.session); }, 60000);
   E.ui = setInterval(updateNightUI, 250);
 
+  E.lastFrame = performance.now();
   await lockScreen();
+  setThemeColor("#000000");
   $("#home").hidden = true; $("#night").hidden = false;
-  armDim();
+  wake();
 }
+
+function setThemeColor(c) { const m = document.querySelector('meta[name="theme-color"]'); if (m) m.content = c; }
 
 function pushOut(s) {
   E.ring[E.ringW] = s; E.ringW = (E.ringW + 1) % E.ring.length; E.outCount++;
@@ -276,6 +302,7 @@ function pushOut(s) {
 }
 
 function processFrame(x) {
+  E.lastFrame = performance.now();
   const n = x.length; let sa = 0, sl = 0;
   for (let i = 0; i < n; i++) {
     const v = x[i];
@@ -372,21 +399,58 @@ async function stopNight() {
   try { await E.ac.close(); } catch (e) {}
   try { wakeLock && await wakeLock.release(); } catch (e) {}
   const id = E.session.id; E = null;
+  window.removeEventListener("devicemotion", onMotion);
+  clearTimeout(blackTimer); $("#blackout").hidden = true;
+  setThemeColor("#0b0e17");
   $("#night").hidden = true;
   openDetail(id);
 }
 
 /* ---------- Nacht-UI ---------- */
-let dimTimer = null, stopArmed = false;
-function armDim() {
-  $("#night").classList.remove("dim");
-  clearTimeout(dimTimer);
-  dimTimer = setTimeout(() => $("#night").classList.add("dim"), 15000);
+/* Bildschirm nach 20 s schwarz; Tippen oder Bewegung weckt ihn */
+const BLACK_AFTER = 20000;
+let blackTimer = null, stopArmed = false;
+function wake() {
+  if (!E) return;
+  $("#blackout").hidden = true;
+  clearTimeout(blackTimer);
+  blackTimer = setTimeout(() => { if (E) $("#blackout").hidden = false; }, BLACK_AFTER);
 }
-$("#night").addEventListener("pointerdown", armDim);
+// Tippen auf den schwarzen Bildschirm weckt nur – löst keine Knöpfe darunter aus
+$("#blackout").addEventListener("pointerdown", e => e.stopPropagation());
+$("#blackout").addEventListener("click", e => { e.stopPropagation(); wake(); });
+$("#night").addEventListener("pointerdown", wake);
+
+let lastAcc = null, lastMotionWake = 0;
+function onMotion(e) {
+  const a = e.accelerationIncludingGravity;
+  if (!a || a.x === null) return;
+  if (lastAcc) {
+    const d = Math.abs(a.x - lastAcc.x) + Math.abs(a.y - lastAcc.y) + Math.abs(a.z - lastAcc.z);
+    const now = Date.now();
+    if (d > 1.5 && now - lastMotionWake > 1000) { lastMotionWake = now; wake(); }
+  }
+  lastAcc = { x: a.x, y: a.y, z: a.z };
+}
+
+function micState() {
+  const track = E.stream.getAudioTracks()[0];
+  if (!track || track.readyState === "ended") return "ended";
+  if (E.ac.state !== "running" || performance.now() - E.lastFrame > 3000) return "paused";
+  return "ok";
+}
+$("#live").addEventListener("click", () => { if (E && micState() === "paused") E.ac.resume().catch(() => {}); });
 
 function updateNightUI() {
   if (!E) return;
+  const ms = micState();
+  const live = $("#live"), black = $("#blackout");
+  const mode = ms !== "ok" ? "warn" : (E.clip ? "rec" : "");
+  live.className = "live " + mode; black.className = mode;
+  $("#liveTxt").textContent =
+    ms === "ended" ? "Mikrofon getrennt – Nacht neu starten" :
+    ms === "paused" ? "Mikrofon pausiert – hier tippen" :
+    E.clip ? "Aktiv · nimmt gerade auf" : "Aktiv · Mikrofon hört zu";
   $("#clock").textContent = hm(new Date());
   const st = $("#status");
   if (E.clip) { st.textContent = "Schnarchen erkannt – nimmt auf"; st.className = "status rec"; }
