@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b0e17">
+<title>Schnarchwächter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,500&family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+<style>
+/* Layout: eine Spalte, Nachtpalette – dunkles Blauschwarz, gedimmtes Lampen-Amber als einziger Akzent */
+:root{
+  --bg:#0b0e17; --surface:#141a28; --line:#232c40; --fg:#d9dde8; --muted:#8089a0; --accent:#e8a75a; --alert:#e2685c;
+  --display:"Fraunces",Georgia,serif; --body:"Atkinson Hyperlegible",system-ui,sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 var(--body);-webkit-font-smoothing:antialiased}
+[hidden]{display:none!important}
+.wrap{max-width:560px;margin:0 auto;padding:max(20px,env(safe-area-inset-top)) 16px max(32px,env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:24px}
+h1{font:300 2.2rem/1.1 var(--display);margin:0;letter-spacing:-.01em}
+h2{font:500 1.15rem/1.3 var(--display);margin:0}
+.eyebrow{font-size:.75rem;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.muted{color:var(--muted)}
+button{font:inherit;color:inherit;cursor:pointer;border:0;background:none}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.start{width:100%;padding:22px;border-radius:16px;background:var(--accent);color:#1b1206;font-weight:700;font-size:1.15rem}
+.btn{padding:9px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);font-size:.9rem}
+.btn.danger{color:var(--alert)}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.tips{margin:0;padding-left:1.1em;color:var(--muted);font-size:.92rem;display:flex;flex-direction:column;gap:4px}
+.nights{display:flex;flex-direction:column;gap:8px}
+.night{display:grid;grid-template-columns:1fr auto;gap:2px 12px;text-align:left;padding:14px 16px;border-radius:12px;border:1px solid var(--line);background:var(--surface)}
+.night b{font-weight:700}
+.night .val{font:500 1.3rem var(--display);color:var(--accent);grid-row:span 2;align-self:center;font-variant-numeric:tabular-nums}
+.empty{padding:20px;border:1px dashed var(--line);border-radius:12px;color:var(--muted);text-align:center}
+.meter{height:6px;border-radius:3px;background:var(--line);overflow:hidden}
+.meter i{display:block;height:100%;width:0;background:var(--muted);transition:width .2s}
+.meter.hot i{background:var(--accent)}
+
+/* Nachtansicht */
+#night{position:fixed;inset:0;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;padding:24px 16px;transition:opacity 1.5s}
+#night.dim{opacity:.22}
+.clock{font:300 clamp(4rem,22vw,7rem)/1 var(--display);color:#7c849a;font-variant-numeric:tabular-nums}
+.status{font-size:1rem;color:#5d6478;text-align:center;min-height:1.5em}
+.status.rec{color:var(--accent)}
+.stats{display:flex;gap:32px;color:#5d6478;font-size:.85rem;text-align:center}
+.stats b{display:block;font:300 1.6rem var(--display);color:#8a91a6;font-variant-numeric:tabular-nums}
+#night .meter{width:min(240px,70vw);background:#151922}
+#stopBtn{margin-top:12px;padding:12px 26px;border-radius:999px;border:1px solid #2a3040;color:#6b7286}
+#stopBtn.confirm{border-color:var(--alert);color:var(--alert)}
+.dot{width:10px;height:10px;border-radius:50%;background:#20242e;transition:background .3s}
+.dot.on{background:var(--accent)}
+
+/* Detail */
+.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.summary div{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px}
+.summary b{display:block;font:500 1.5rem var(--display);color:var(--accent);font-variant-numeric:tabular-nums}
+.summary span{font-size:.78rem;color:var(--muted)}
+canvas{width:100%;height:150px;display:block}
+.clips{display:flex;flex-direction:column;gap:10px}
+.clip{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:10px}
+.clip audio{width:100%;height:40px}
+.clip .acts{display:flex;gap:8px;flex-wrap:wrap}
+.back{align-self:flex-start;color:var(--muted);padding:4px 0}
+</style>
+</head>
+<body>
+
+<!-- Startseite -->
+<main class="wrap" id="home">
+  <header>
+    <div class="eyebrow">Schlaf-Tonaufnahme</div>
+    <h1>Schnarchwächter</h1>
+  </header>
+
+  <button class="start" id="startBtn">Nacht starten</button>
+  <p class="muted" id="err" hidden></p>
+
+  <section class="panel">
+    <div class="row"><h2>Empfindlichkeit</h2><span class="muted" id="sensLbl"></span></div>
+    <input type="range" id="sens" min="5" max="20" step="1">
+    <div class="muted" style="font-size:.85rem">Wie viel lauter als die Raumstille ein Geräusch sein muss (dB). Weniger = empfindlicher.</div>
+  </section>
+
+  <section class="panel">
+    <h2>Für eine gute Nacht-Aufnahme</h2>
+    <ul class="tips">
+      <li>Handy ans Ladekabel, ca. 0,5–1 m neben das Kopfende.</li>
+      <li>App im Vordergrund lassen. Der Bildschirm bleibt an, wird aber fast schwarz.</li>
+      <li>Aufgenommen wird nur, wenn rhythmisches Schnarchen erkannt wird (mind. 3 Atemzüge), inkl. 25 s davor.</li>
+      <li>Alles bleibt lokal auf diesem Gerät.</li>
+    </ul>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:12px">
+    <h2>Nächte</h2>
+    <div class="nights" id="nights"><div class="empty">Noch keine Nacht aufgezeichnet.</div></div>
+  </section>
+</main>
+
+<!-- Nachtansicht -->
+<section id="night" hidden>
+  <div class="clock" id="clock">--:--</div>
+  <div class="status" id="status">Höre zu …</div>
+  <div style="display:flex;gap:8px" id="dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+  <div class="meter" id="nMeter"><i></i></div>
+  <div class="stats">
+    <div><b id="sRec">0</b>Aufnahmen</div>
+    <div><b id="sMin">0</b>Min. Schnarchen</div>
+    <div><b id="sRun">0:00</b>Laufzeit</div>
+  </div>
+  <button id="stopBtn">Nacht beenden</button>
+</section>
+
+<!-- Detailansicht -->
+<main class="wrap" id="detail" hidden>
+  <button class="back" id="backBtn">← Alle Nächte</button>
+  <header>
+    <div class="eyebrow" id="dDate"></div>
+    <h1 id="dTitle"></h1>
+  </header>
+  <div class="summary">
+    <div><b id="dMin">0</b><span>Min. Schnarchen</span></div>
+    <div><b id="dClips">0</b><span>Episoden</span></div>
+    <div><b id="dEv">0</b><span>Schnarcher</span></div>
+  </div>
+  <section class="panel">
+    <div class="row"><h2>Verlauf</h2><span class="muted" style="font-size:.8rem">Schnarcher je 10 Min.</span></div>
+    <canvas id="chart"></canvas>
+  </section>
+  <section style="display:flex;flex-direction:column;gap:12px">
+    <h2>Aufnahmen</h2>
+    <div class="clips" id="clips"></div>
+  </section>
+  <button class="btn danger" id="delNight" style="align-self:flex-start">Nacht löschen</button>
+</main>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+
+/* ---------- Einstellungen ---------- */
+const SR_OUT = 16000;      // Aufnahme-Samplerate (Hz)
+const PRE = 25;            // Vorlauf in Sekunden
+const MAXCLIP = 300;       // max. Länge einer Datei (s)
+const GAP_END = 25;        // Aufnahme endet nach so viel Stille (s)
+const MIN_EV = 0.25, MAX_EV = 4;   // Dauer eines Schnarchers (s)
+const MIN_INT = 1.8, MAX_INT = 12; // Abstand zwischen Schnarchern (s)
+const CHAIN_N = 3;         // so viele rhythmische Schnarcher bis zur Aufnahme
+const LOW_RATIO = 0.45;    // Anteil Energie unter ~800 Hz
+
+let sens = 10;
+try { const v = +localStorage.getItem("sw_sens"); if (v >= 5 && v <= 20) sens = v; } catch (e) {}
+$("#sens").value = sens; $("#sensLbl").textContent = sens + " dB";
+$("#sens").addEventListener("input", e => {
+  sens = +e.target.value; $("#sensLbl").textContent = sens + " dB";
+  try { localStorage.setItem("sw_sens", sens); } catch (e) {}
+});
+
+/* ---------- IndexedDB ---------- */
+const dbp = new Promise((res, rej) => {
+  const r = indexedDB.open("schnarchwaechter", 1);
+  r.onupgradeneeded = () => {
+    const d = r.result;
+    d.createObjectStore("sessions", { keyPath: "id" });
+    d.createObjectStore("clips", { keyPath: "id" }).createIndex("session", "sessionId");
+  };
+  r.onsuccess = () => res(r.result);
+  r.onerror = () => rej(r.error);
+});
+async function req(store, mode, fn) {
+  const d = await dbp;
+  return new Promise((res, rej) => {
+    const t = d.transaction(store, mode);
+    const r = fn(t.objectStore(store));
+    t.oncomplete = () => res(r ? r.result : undefined);
+    t.onerror = () => rej(t.error);
+  });
+}
+const putSession = s => req("sessions", "readwrite", st => st.put(s));
+const putClip = c => req("clips", "readwrite", st => st.put(c));
+const allSessions = () => req("sessions", "readonly", st => st.getAll());
+const clipsOf = id => req("clips", "readonly", st => st.index("session").getAll(id));
+const delClip = id => req("clips", "readwrite", st => st.delete(id));
+async function delSession(id) {
+  const d = await dbp;
+  return new Promise((res, rej) => {
+    const t = d.transaction(["sessions", "clips"], "readwrite");
+    t.objectStore("sessions").delete(id);
+    const k = t.objectStore("clips").index("session").getAllKeys(id);
+    k.onsuccess = () => k.result.forEach(key => t.objectStore("clips").delete(key));
+    t.oncomplete = res; t.onerror = () => rej(t.error);
+  });
+}
+
+/* ---------- Hilfen ---------- */
+const pad = n => String(n).padStart(2, "0");
+const hm = d => pad(d.getHours()) + ":" + pad(d.getMinutes());
+const fmtDur = s => { s = Math.round(s); return Math.floor(s / 60) + ":" + pad(s % 60); };
+const fmtRun = s => { s = Math.floor(s); return Math.floor(s / 3600) + ":" + pad(Math.floor(s / 60) % 60); };
+
+function encodeWav(chunks, total) {
+  const buf = new ArrayBuffer(44 + total * 2), v = new DataView(buf);
+  const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, "RIFF"); v.setUint32(4, 36 + total * 2, true); w(8, "WAVE"); w(12, "fmt ");
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, SR_OUT, true); v.setUint32(28, SR_OUT * 2, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, "data"); v.setUint32(40, total * 2, true);
+  const out = new Int16Array(buf, 44); let o = 0;
+  for (const c of chunks) { out.set(c, o); o += c.length; }
+  return new Blob([buf], { type: "audio/wav" });
+}
+
+/* ---------- Aufnahme-Engine ---------- */
+let E = null, wakeLock = null;
+
+async function lockScreen() {
+  try { if ("wakeLock" in navigator) wakeLock = await navigator.wakeLock.request("screen"); } catch (e) {}
+}
+document.addEventListener("visibilitychange", () => {
+  if (E && document.visibilityState === "visible") lockScreen();
+});
+
+async function startNight() {
+  $("#err").hidden = true;
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 }
+    });
+  } catch (e) {
+    $("#err").textContent = "Kein Mikrofonzugriff. Bitte im Browser erlauben (Seite muss über https laufen).";
+    $("#err").hidden = false; return;
+  }
+  const ac = new (window.AudioContext || window.webkitAudioContext)();
+  await ac.resume();
+  const src = ac.createMediaStreamSource(stream);
+  const proc = ac.createScriptProcessor(4096, 1, 1);
+  const mute = ac.createGain(); mute.gain.value = 0;
+  src.connect(proc); proc.connect(mute); mute.connect(ac.destination);
+
+  const sr = ac.sampleRate, dt = 1 / sr;
+  const rcH = 1 / (2 * Math.PI * 60), rcL = 1 / (2 * Math.PI * 800);
+  const now = Date.now();
+  E = {
+    stream, ac, proc, sr,
+    ratio: sr / SR_OUT, acc: 0, accN: 0, frac: 0,
+    ring: new Int16Array(SR_OUT * PRE), ringW: 0, outCount: 0,
+    aH: rcH / (rcH + dt), bL: dt / (rcL + dt), hpX: 0, hpY: 0, lpY: 0,
+    floor: null, t: 0, above: 0,
+    evActive: false, evStart: 0, quiet: 0, lastEventFlash: -99,
+    chain: [], snoring: false, lastSnore: 0, clip: null,
+    session: { id: now, start: now, end: now, events: [], clipCount: 0, snoreSeconds: 0 }
+  };
+  await putSession(E.session);
+  proc.onaudioprocess = e => processFrame(e.inputBuffer.getChannelData(0));
+  E.saver = setInterval(() => { E.session.end = Date.now(); putSession(E.session); }, 60000);
+  E.ui = setInterval(updateNightUI, 250);
+
+  await lockScreen();
+  $("#home").hidden = true; $("#night").hidden = false;
+  armDim();
+}
+
+function pushOut(s) {
+  E.ring[E.ringW] = s; E.ringW = (E.ringW + 1) % E.ring.length; E.outCount++;
+  const c = E.clip;
+  if (c) {
+    c.cur[c.ci++] = s; c.len++;
+    if (c.ci === c.cur.length) { c.chunks.push(c.cur); c.cur = new Int16Array(SR_OUT); c.ci = 0; }
+  }
+}
+
+function processFrame(x) {
+  const n = x.length; let sa = 0, sl = 0;
+  for (let i = 0; i < n; i++) {
+    const v = x[i];
+    const hp = E.aH * (E.hpY + v - E.hpX); E.hpX = v; E.hpY = hp;
+    E.lpY += E.bL * (hp - E.lpY);
+    sa += hp * hp; sl += E.lpY * E.lpY;
+    E.acc += v; E.accN++; E.frac += 1;
+    if (E.frac >= E.ratio) {
+      E.frac -= E.ratio;
+      const s = Math.max(-1, Math.min(1, E.acc / E.accN));
+      pushOut((s * 32767) | 0); E.acc = 0; E.accN = 0;
+    }
+  }
+  const fd = n / E.sr;
+  E.t += fd;
+  const db = 10 * Math.log10(sa / n + 1e-12);
+  const low = sl / (sa + 1e-12);
+
+  // Grundrauschen: fällt schnell, steigt langsam
+  if (E.floor === null) E.floor = db;
+  else if (db < E.floor) E.floor += (db - E.floor) * 0.08;
+  else E.floor += Math.min(db - E.floor, 20) * 0.003;
+
+  E.above = db - E.floor;
+  const act = E.above > sens && low > LOW_RATIO && db > -72;
+
+  if (act) {
+    if (!E.evActive) { E.evActive = true; E.evStart = E.t - fd; }
+    E.quiet = 0;
+    if (E.t - E.evStart > MAX_EV + 1) E.chain = [];   // Dauergeräusch: kein Schnarchen
+  } else if (E.evActive) {
+    if (++E.quiet >= 3) {
+      E.evActive = false;
+      onEvent(E.evStart, (E.t - E.quiet * fd) - E.evStart);
+    }
+  }
+
+  if (E.snoring && E.t - E.lastSnore > GAP_END) { E.snoring = false; E.chain = []; finishClip(); }
+  if (E.clip && E.clip.len / SR_OUT >= MAXCLIP) { finishClip(); if (E.snoring) startClip(null); }
+}
+
+function onEvent(start, d) {
+  if (d < MIN_EV || d > MAX_EV) return;
+  E.lastEventFlash = E.t;
+  const c = E.chain, last = c[c.length - 1];
+  if (last !== undefined) {
+    const iv = start - last;
+    if (iv < MIN_INT) return;
+    if (iv > MAX_INT) c.length = 0;
+  }
+  c.push(start); if (c.length > 6) c.shift();
+  if (E.snoring) {
+    E.session.events.push(Math.round(start)); E.lastSnore = start;
+  } else if (c.length >= CHAIN_N) {
+    E.snoring = true; E.lastSnore = start;
+    c.forEach(s => E.session.events.push(Math.round(s)));
+    startClip(c[0]);
+  }
+}
+
+function startClip(fromT) {
+  let pre = 0;
+  if (fromT !== null) pre = Math.min(PRE, E.t - fromT + 3);
+  const preN = Math.min(Math.floor(pre * SR_OUT), E.outCount, E.ring.length);
+  const first = new Int16Array(preN), L = E.ring.length;
+  let idx = (E.ringW - preN + L) % L;
+  for (let i = 0; i < preN; i++) { first[i] = E.ring[idx]; idx = (idx + 1) % L; }
+  E.clip = { start: E.t - preN / SR_OUT, chunks: [first], cur: new Int16Array(SR_OUT), ci: 0, len: preN };
+}
+
+function finishClip() {
+  const c = E.clip; if (!c) return;
+  E.clip = null;
+  const chunks = c.chunks.concat([c.cur.subarray(0, c.ci)]);
+  const dur = c.len / SR_OUT;
+  if (dur < 2) return;
+  const s = E.session;
+  s.clipCount++; s.snoreSeconds += dur; s.end = Date.now();
+  putClip({
+    id: s.id + "-" + s.clipCount, sessionId: s.id, offset: c.start,
+    at: s.start + c.start * 1000, duration: dur, blob: encodeWav(chunks, c.len)
+  });
+  putSession(s);
+}
+
+async function stopNight() {
+  if (!E) return;
+  E.proc.onaudioprocess = null;
+  finishClip();
+  clearInterval(E.saver); clearInterval(E.ui);
+  E.session.end = Date.now();
+  await putSession(E.session);
+  E.stream.getTracks().forEach(t => t.stop());
+  try { await E.ac.close(); } catch (e) {}
+  try { wakeLock && await wakeLock.release(); } catch (e) {}
+  const id = E.session.id; E = null;
+  $("#night").hidden = true;
+  openDetail(id);
+}
+
+/* ---------- Nacht-UI ---------- */
+let dimTimer = null, stopArmed = false;
+function armDim() {
+  $("#night").classList.remove("dim");
+  clearTimeout(dimTimer);
+  dimTimer = setTimeout(() => $("#night").classList.add("dim"), 15000);
+}
+$("#night").addEventListener("pointerdown", armDim);
+
+function updateNightUI() {
+  if (!E) return;
+  $("#clock").textContent = hm(new Date());
+  const st = $("#status");
+  if (E.clip) { st.textContent = "Schnarchen erkannt – nimmt auf"; st.className = "status rec"; }
+  else { st.textContent = E.t < 5 ? "Kalibriere Raumgeräusch …" : "Höre zu …"; st.className = "status"; }
+  const n = E.snoring ? 3 : Math.min(E.chain.length, 3);
+  document.querySelectorAll("#dots .dot").forEach((d, i) => d.classList.toggle("on", i < n));
+  const m = $("#nMeter");
+  m.firstElementChild.style.width = Math.max(0, Math.min(100, E.above / 30 * 100)) + "%";
+  m.classList.toggle("hot", E.t - E.lastEventFlash < 1);
+  const liveSec = E.session.snoreSeconds + (E.clip ? E.clip.len / SR_OUT : 0);
+  $("#sRec").textContent = E.session.clipCount + (E.clip ? 1 : 0);
+  $("#sMin").textContent = Math.round(liveSec / 60);
+  $("#sRun").textContent = fmtRun(E.t);
+}
+
+$("#stopBtn").addEventListener("click", () => {
+  const b = $("#stopBtn");
+  if (!stopArmed) {
+    stopArmed = true; b.classList.add("confirm"); b.textContent = "Nochmal tippen zum Beenden";
+    setTimeout(() => { stopArmed = false; b.classList.remove("confirm"); b.textContent = "Nacht beenden"; }, 4000);
+  } else { stopArmed = false; b.classList.remove("confirm"); b.textContent = "Nacht beenden"; stopNight(); }
+});
+$("#startBtn").addEventListener("click", startNight);
+
+/* ---------- Startseite ---------- */
+const dateFmt = new Intl.DateTimeFormat("de-DE", { weekday: "long", day: "numeric", month: "long" });
+async function renderHome() {
+  const list = (await allSessions()).sort((a, b) => b.start - a.start);
+  const box = $("#nights");
+  if (!list.length) { box.innerHTML = '<div class="empty">Noch keine Nacht aufgezeichnet.</div>'; return; }
+  box.innerHTML = "";
+  for (const s of list) {
+    const b = document.createElement("button");
+    b.className = "night";
+    const a = new Date(s.start), z = new Date(s.end);
+    b.innerHTML = `<b></b><span class="val">${Math.round(s.snoreSeconds / 60)} min</span>
+      <span class="muted" style="font-size:.85rem">${hm(a)}–${hm(z)} · ${s.clipCount} Aufnahmen</span>`;
+    b.querySelector("b").textContent = dateFmt.format(a);
+    b.addEventListener("click", () => openDetail(s.id));
+    box.appendChild(b);
+  }
+}
+
+/* ---------- Detail ---------- */
+let curId = null, urls = [], delArmed = false;
+async function openDetail(id) {
+  curId = id;
+  const s = (await allSessions()).find(x => x.id === id);
+  if (!s) { showHome(); return; }
+  urls.forEach(u => URL.revokeObjectURL(u)); urls = [];
+  const a = new Date(s.start), z = new Date(s.end);
+  $("#dDate").textContent = dateFmt.format(a);
+  $("#dTitle").textContent = hm(a) + " – " + hm(z) + " Uhr";
+  $("#dMin").textContent = Math.round(s.snoreSeconds / 60);
+  $("#dClips").textContent = s.clipCount;
+  $("#dEv").textContent = s.events.length;
+
+  const clips = (await clipsOf(id)).sort((x, y) => x.at - y.at);
+  const box = $("#clips"); box.innerHTML = "";
+  if (!clips.length) box.innerHTML = '<div class="empty">In dieser Nacht wurde kein Schnarchen aufgenommen.</div>';
+  for (const c of clips) {
+    const url = URL.createObjectURL(c.blob); urls.push(url);
+    const name = "schnarchen_" + new Date(c.at).toISOString().slice(0, 16).replace(/[:T]/g, "-") + ".wav";
+    const el = document.createElement("div"); el.className = "clip";
+    el.innerHTML = `<div class="row"><b>${hm(new Date(c.at))} Uhr</b><span class="muted">${fmtDur(c.duration)} min</span></div>
+      <audio controls preload="none" src="${url}"></audio>
+      <div class="acts"><button class="btn sv">Speichern / Teilen</button><button class="btn danger dl">Löschen</button></div>`;
+    el.querySelector(".sv").addEventListener("click", async () => {
+      const file = new File([c.blob], name, { type: "audio/wav" });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try { await navigator.share({ files: [file], title: "Schnarch-Aufnahme" }); return; } catch (e) { if (e.name === "AbortError") return; }
+      }
+      const a = document.createElement("a"); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    });
+    let armed = false;
+    el.querySelector(".dl").addEventListener("click", async e => {
+      if (!armed) { armed = true; e.target.textContent = "Wirklich löschen?"; setTimeout(() => { armed = false; e.target.textContent = "Löschen"; }, 3000); return; }
+      await delClip(c.id);
+      s.clipCount = Math.max(0, s.clipCount - 1); s.snoreSeconds = Math.max(0, s.snoreSeconds - c.duration);
+      await putSession(s); openDetail(id);
+    });
+    box.appendChild(el);
+  }
+  $("#home").hidden = true; $("#detail").hidden = false;
+  window.scrollTo(0, 0);
+  drawChart(s);
+}
+
+function drawChart(s) {
+  const cv = $("#chart"), dpr = window.devicePixelRatio || 1;
+  const W = cv.clientWidth, H = cv.clientHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const g = cv.getContext("2d"); g.scale(dpr, dpr); g.clearRect(0, 0, W, H);
+  const cs = getComputedStyle(document.documentElement);
+  const cAcc = cs.getPropertyValue("--accent").trim(), cLine = cs.getPropertyValue("--line").trim(), cMut = cs.getPropertyValue("--muted").trim();
+  const total = Math.max(600, (s.end - s.start) / 1000), BIN = 600;
+  const nb = Math.ceil(total / BIN), bins = new Array(nb).fill(0);
+  s.events.forEach(t => { const i = Math.min(nb - 1, Math.floor(t / BIN)); if (i >= 0) bins[i]++; });
+  const max = Math.max(5, ...bins);
+  const L = 4, R = 4, T = 10, B = 22, cw = W - L - R, ch = H - T - B;
+  g.strokeStyle = cLine; g.lineWidth = 1;
+  g.beginPath(); g.moveTo(L, T + ch + .5); g.lineTo(L + cw, T + ch + .5); g.stroke();
+  const bw = cw / nb;
+  g.fillStyle = cAcc;
+  bins.forEach((v, i) => { if (!v) return; const h = v / max * ch; g.fillRect(L + i * bw + 1, T + ch - h, Math.max(1, bw - 2), h); });
+  g.fillStyle = cMut; g.font = "11px " + cs.getPropertyValue("--body"); g.textBaseline = "top";
+  // Stundenmarken
+  const st = new Date(s.start), firstHour = new Date(st); firstHour.setMinutes(0, 0, 0); firstHour.setHours(firstHour.getHours() + 1);
+  const hours = total / 3600, step = hours > 8 ? 2 : 1;
+  for (let t = firstHour.getTime(); t < s.end; t += 3600000 * step) {
+    const x = L + (t - s.start) / 1000 / total * cw;
+    g.fillRect(x, T + ch, 1, 4);
+    const lbl = pad(new Date(t).getHours()) + ":00", w = g.measureText(lbl).width;
+    g.fillText(lbl, Math.min(Math.max(x - w / 2, 0), W - w), T + ch + 7);
+  }
+  g.textAlign = "right"; g.textBaseline = "top"; g.fillText("max " + Math.max(...bins), W - R, 0);
+}
+
+$("#delNight").addEventListener("click", async () => {
+  const b = $("#delNight");
+  if (!delArmed) { delArmed = true; b.textContent = "Wirklich ganze Nacht löschen?"; setTimeout(() => { delArmed = false; b.textContent = "Nacht löschen"; }, 3000); return; }
+  delArmed = false; b.textContent = "Nacht löschen";
+  await delSession(curId); showHome();
+});
+function showHome() { $("#detail").hidden = true; $("#home").hidden = false; renderHome(); }
+$("#backBtn").addEventListener("click", showHome);
+window.addEventListener("resize", () => { if (!$("#detail").hidden && curId) allSessions().then(l => { const s = l.find(x => x.id === curId); s && drawChart(s); }); });
+window.addEventListener("beforeunload", e => { if (E) { e.preventDefault(); e.returnValue = ""; } });
+
+renderHome();
+</script>
+</body>
+</html>
